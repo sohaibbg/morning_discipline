@@ -4,6 +4,7 @@ import 'dart:async';
 import '../models/discipline_rule.dart';
 import '../providers/rules_provider.dart';
 import '../services/app_monitoring_service.dart';
+import '../services/monitoring_orchestrator.dart';
 import '../dependency_injection.dart';
 
 class RuleCard extends ConsumerStatefulWidget {
@@ -55,6 +56,10 @@ class _RuleCardState extends ConsumerState<RuleCard>
     const frequency = Duration(milliseconds: 100);
     _updateTimer = Timer.periodic(frequency, (_) {
       _updateUsage();
+      // Also trigger rebuild to update alarm status
+      if (mounted) {
+        setState(() {});
+      }
     });
     _updateUsage();
   }
@@ -112,24 +117,23 @@ class _RuleCardState extends ConsumerState<RuleCard>
 
   @override
   Widget build(BuildContext context) {
-    _appMonitor
-        .getAppUsageForWindow(
-          widget.rule.monitoredApps,
-          widget.rule.monitoringWindow.startTime,
-          DateTime.now(),
-        )
-        .then((value) {
-          print(value);
-        });
+    final orchestrator = getIt<MonitoringOrchestrator>();
     final isMonitoring = widget.rule.isEnabled && _isInMonitoringWindow();
+    final isActiveRule = orchestrator.activeRule?.id == widget.rule.id;
+    final isAlarmActive = isActiveRule && orchestrator.state == MonitoringState.alarmActive;
 
     final ruleActions = Row(
       mainAxisSize: MainAxisSize.min,
       children: [
         Switch(
           value: widget.rule.isEnabled,
-          onChanged: (_) =>
-              ref.read(rulesProvider.notifier).toggleRule(widget.rule.id),
+          onChanged: (_) async {
+            // If alarm is active for this rule, stop it
+            if (isAlarmActive) {
+              await orchestrator.stopCurrentMonitoring();
+            }
+            ref.read(rulesProvider.notifier).toggleRule(widget.rule.id);
+          },
         ),
         PopupMenuButton<String>(
           onSelected: (value) {
@@ -200,8 +204,158 @@ class _RuleCardState extends ConsumerState<RuleCard>
               ],
             ),
             if (isMonitoring) buildMonitoringStatus(),
+            if (isAlarmActive) buildAlarmStatus(),
+            if (!isMonitoring && !isAlarmActive) buildExecutionStatus(),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget buildExecutionStatus() {
+    final status = widget.rule.lastExecutionStatus;
+    if (status == null) return const SizedBox.shrink();
+
+    // Only show status for last 7 days
+    final daysSince = DateTime.now().difference(status.date).inDays;
+    if (daysSince > 7) return const SizedBox.shrink();
+
+    final statusInfo = _getStatusInfo(status.outcome);
+    final isToday = daysSince == 0;
+    final dateText = isToday ? 'Today' : '$daysSince day${daysSince == 1 ? '' : 's'} ago';
+
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 300),
+      curve: Curves.easeInOut,
+      margin: const EdgeInsets.only(top: 8),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: statusInfo.color.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: statusInfo.color.withOpacity(0.3)),
+      ),
+      child: Row(
+        children: [
+          Icon(statusInfo.icon, color: statusInfo.color, size: 16),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  statusInfo.message,
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                    color: statusInfo.color,
+                  ),
+                ),
+                Text(
+                  dateText,
+                  style: const TextStyle(fontSize: 10, color: Colors.grey),
+                ),
+                if (status.failureReason != null)
+                  Text(
+                    status.failureReason!,
+                    style: const TextStyle(fontSize: 10, color: Colors.grey),
+                  ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  _StatusInfo _getStatusInfo(ExecutionOutcome outcome) {
+    return switch (outcome) {
+      ExecutionOutcome.success => _StatusInfo(
+        icon: Icons.check_circle,
+        color: Colors.green,
+        message: 'Success - threshold not crossed',
+      ),
+      ExecutionOutcome.alarmTerminated => _StatusInfo(
+        icon: Icons.task_alt,
+        color: Colors.orange,
+        message: 'Alarm rang and was terminated',
+      ),
+      ExecutionOutcome.alarmTimedOut => _StatusInfo(
+        icon: Icons.alarm_off,
+        color: Colors.red,
+        message: 'Alarm rang until timeout',
+      ),
+      ExecutionOutcome.alarmFailedToTrigger => _StatusInfo(
+        icon: Icons.error,
+        color: Colors.red,
+        message: 'Alarm failed to trigger',
+      ),
+      ExecutionOutcome.alarmTooLate => _StatusInfo(
+        icon: Icons.schedule,
+        color: Colors.orange,
+        message: 'Detection delayed - alarm not triggered',
+      ),
+    };
+  }
+
+  Widget buildAlarmStatus() {
+    final orchestrator = getIt<MonitoringOrchestrator>();
+    final progress = orchestrator.terminationProgress;
+    final rule = widget.rule;
+
+    final progressText = rule.terminationMechanism.when(
+      steps: (requiredSteps) {
+        final currentSteps = (progress * requiredSteps).toInt();
+        return '$currentSteps / $requiredSteps steps';
+      },
+      movement: (requiredMovement) {
+        final currentMovement = (progress * requiredMovement).toInt();
+        return '$currentMovement / ${requiredMovement.toInt()} units';
+      },
+    );
+
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 300),
+      curve: Curves.easeInOut,
+      margin: const EdgeInsets.only(top: 8),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.red.shade50,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: Colors.red.shade200),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.alarm, color: Colors.red.shade700, size: 20),
+              const SizedBox(width: 8),
+              Text(
+                'ALARM ACTIVE',
+                style: TextStyle(
+                  color: Colors.red.shade900,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 12,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(4),
+            child: LinearProgressIndicator(
+              value: progress.clamp(0.0, 1.0),
+              minHeight: 8,
+              backgroundColor: Colors.grey.shade300,
+              valueColor: AlwaysStoppedAnimation<Color>(Colors.red.shade700),
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            progressText,
+            style: TextStyle(fontSize: 11, color: Colors.grey.shade700),
+          ),
+        ],
       ),
     );
   }
@@ -293,7 +447,6 @@ class _RuleCardState extends ConsumerState<RuleCard>
   }
 
   String _formatDuration(Duration duration) {
-    final hours = duration.inHours;
     final minutes = duration.inMinutes.remainder(60);
     final seconds = duration.inSeconds.remainder(60);
 
@@ -304,4 +457,16 @@ class _RuleCardState extends ConsumerState<RuleCard>
     }
     return '${minutes}m';
   }
+}
+
+class _StatusInfo {
+  final IconData icon;
+  final Color color;
+  final String message;
+
+  _StatusInfo({
+    required this.icon,
+    required this.color,
+    required this.message,
+  });
 }

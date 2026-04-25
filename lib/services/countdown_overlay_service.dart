@@ -26,14 +26,18 @@ class CountdownOverlayService {
   }) async {
     try {
       final hasPermission = await hasOverlayPermission();
-      if (!hasPermission) return;
+      if (!hasPermission) {
+        print('Overlay permission not granted');
+        return;
+      }
 
       await platform.invokeMethod('showCountdownOverlay', {
         'remainingSeconds': remainingSeconds,
         'appName': appName,
       });
     } catch (e) {
-      // Silently fail if overlay can't be shown
+      print('Error showing overlay: $e');
+      // Don't throw - silently fail to avoid breaking monitoring
     }
   }
 
@@ -43,7 +47,8 @@ class CountdownOverlayService {
         'remainingSeconds': remainingSeconds,
       });
     } catch (e) {
-      rethrow;
+      print('Error updating overlay: $e');
+      // Don't throw
     }
   }
 
@@ -51,7 +56,8 @@ class CountdownOverlayService {
     try {
       await platform.invokeMethod('hideCountdownOverlay');
     } catch (e) {
-      rethrow;
+      print('Error hiding overlay: $e');
+      // Don't throw
     }
   }
 }

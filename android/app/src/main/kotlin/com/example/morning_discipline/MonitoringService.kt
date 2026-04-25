@@ -15,6 +15,8 @@ class MonitoringService : Service() {
     companion object {
         private const val CHANNEL_ID = "monitoring_service"
         private const val NOTIFICATION_ID = 1
+        private const val ACTION_UPDATE_NOTIFICATION = "UPDATE_NOTIFICATION"
+        private const val EXTRA_ONGOING = "EXTRA_ONGOING"
 
         fun start(context: Context) {
             val intent = Intent(context, MonitoringService::class.java)
@@ -29,17 +31,42 @@ class MonitoringService : Service() {
             val intent = Intent(context, MonitoringService::class.java)
             context.stopService(intent)
         }
+
+        fun updateNotification(context: Context, ongoing: Boolean) {
+            val intent = Intent(context, MonitoringService::class.java).apply {
+                action = ACTION_UPDATE_NOTIFICATION
+                putExtra(EXTRA_ONGOING, ongoing)
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                context.startForegroundService(intent)
+            } else {
+                context.startService(intent)
+            }
+        }
     }
+
+    private var isOngoing = true
 
     override fun onCreate() {
         super.onCreate()
         createNotificationChannel()
-        startForeground(NOTIFICATION_ID, createNotification())
+        startForeground(NOTIFICATION_ID, createNotification(isOngoing))
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        when (intent?.action) {
+            ACTION_UPDATE_NOTIFICATION -> {
+                isOngoing = intent.getBooleanExtra(EXTRA_ONGOING, true)
+                updateForegroundNotification()
+            }
+        }
         // Service will continue running until explicitly stopped
         return START_STICKY
+    }
+
+    private fun updateForegroundNotification() {
+        val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        notificationManager.notify(NOTIFICATION_ID, createNotification(isOngoing))
     }
 
     override fun onBind(intent: Intent?): IBinder? {
@@ -62,7 +89,7 @@ class MonitoringService : Service() {
         }
     }
 
-    private fun createNotification(): Notification {
+    private fun createNotification(ongoing: Boolean): Notification {
         val pendingIntent = PendingIntent.getActivity(
             this,
             0,
@@ -72,11 +99,11 @@ class MonitoringService : Service() {
 
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("Monitoring Active")
-            .setContentText("Tracking app usage for your discipline rules")
+            .setContentText(if (ongoing) "Tracking app usage - Critical period" else "Tracking app usage")
             .setSmallIcon(android.R.drawable.ic_menu_view)
             .setContentIntent(pendingIntent)
-            .setOngoing(true)
-            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setOngoing(ongoing)
+            .setPriority(if (ongoing) NotificationCompat.PRIORITY_HIGH else NotificationCompat.PRIORITY_LOW)
             .build()
     }
 }

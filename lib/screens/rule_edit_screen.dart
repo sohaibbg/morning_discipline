@@ -101,8 +101,7 @@ class _RuleEditScreenState extends ConsumerState<RuleEditScreen> {
     );
 
     _alarmSoundUri = rule?.alarmSound;
-    _alarmSoundTitle = rule?.alarmSoundTitle;
-    if (_alarmSoundUri != null && _alarmSoundUri != 'default' && _alarmSoundTitle == null) {
+    if (_alarmSoundUri != null && _alarmSoundUri != 'default') {
       _alarmSoundTitle = 'Custom Sound';
     }
     _terminationType =
@@ -741,7 +740,7 @@ class _RuleEditScreenState extends ConsumerState<RuleEditScreen> {
     // Auto-navigate to end time if setting start time
     if (isStart) {
       Future.delayed(const Duration(milliseconds: 300), () {
-        if (!mounted) return;
+        if (!context.mounted) return;
         _selectTime(context, false);
       });
       return;
@@ -809,7 +808,6 @@ class _RuleEditScreenState extends ConsumerState<RuleEditScreen> {
       thresholdDuration: Duration(minutes: _thresholdMinutes),
       maxAlarmDuration: Duration(minutes: _maxAlarmMinutes),
       alarmSound: _alarmSoundUri ?? 'default',
-      alarmSoundTitle: _alarmSoundTitle,
       terminationMechanism: _terminationType == TerminationType.steps
           ? TerminationMechanism.steps(requiredSteps: _requiredSteps)
           : TerminationMechanism.movement(requiredMovement: _requiredMovement),

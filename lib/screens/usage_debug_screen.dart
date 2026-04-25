@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../services/app_monitoring_service.dart';
 import '../services/countdown_overlay_service.dart';
 import '../services/monitoring_orchestrator.dart';
+import '../services/alarm_service.dart';
 import '../dependency_injection.dart';
 import 'package:intl/intl.dart';
 
@@ -20,6 +21,7 @@ class _UsageDebugWidgetState extends State<UsageDebugWidget> {
   bool _hasOverlayPermission = false;
   String? _foregroundApp;
   MonitoringState _monitoringState = MonitoringState.idle;
+  bool _alarmPlaying = false;
 
   @override
   void initState() {
@@ -109,6 +111,8 @@ class _UsageDebugWidgetState extends State<UsageDebugWidget> {
             const SizedBox(height: 16),
             _buildMonitoringStatus(),
             const SizedBox(height: 16),
+            _buildAlarmTestCard(),
+            const SizedBox(height: 16),
             _buildFetchButton(),
             const SizedBox(height: 16),
             if (_isLoading) _buildLoadingIndicator(),
@@ -179,15 +183,11 @@ class _UsageDebugWidgetState extends State<UsageDebugWidget> {
               ],
             ),
             const SizedBox(height: 12),
-            _buildPermissionRow(
-              'Usage Stats',
-              _hasUsagePermission,
-              () async {
-                final appMonitor = getIt<AppMonitoringService>();
-                await appMonitor.requestPermissions();
-                _checkAllPermissions();
-              },
-            ),
+            _buildPermissionRow('Usage Stats', _hasUsagePermission, () async {
+              final appMonitor = getIt<AppMonitoringService>();
+              await appMonitor.requestPermissions();
+              _checkAllPermissions();
+            }),
             const Divider(),
             _buildPermissionRow(
               'Display Over Apps',
@@ -214,8 +214,8 @@ class _UsageDebugWidgetState extends State<UsageDebugWidget> {
       color: _monitoringState == MonitoringState.monitoring
           ? Colors.green.shade50
           : _monitoringState == MonitoringState.alarmActive
-              ? Colors.red.shade50
-              : Colors.grey.shade50,
+          ? Colors.red.shade50
+          : Colors.grey.shade50,
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
@@ -266,10 +266,7 @@ class _UsageDebugWidgetState extends State<UsageDebugWidget> {
           Text(label, style: const TextStyle(color: Colors.grey)),
           Text(
             value,
-            style: TextStyle(
-              fontWeight: FontWeight.bold,
-              color: color,
-            ),
+            style: TextStyle(fontWeight: FontWeight.bold, color: color),
           ),
         ],
       ),
@@ -291,17 +288,9 @@ class _UsageDebugWidgetState extends State<UsageDebugWidget> {
             size: 20,
           ),
           const SizedBox(width: 12),
-          Expanded(
-            child: Text(
-              label,
-              style: const TextStyle(fontSize: 14),
-            ),
-          ),
+          Expanded(child: Text(label, style: const TextStyle(fontSize: 14))),
           if (!granted)
-            TextButton(
-              onPressed: onRequest,
-              child: const Text('Grant'),
-            )
+            TextButton(onPressed: onRequest, child: const Text('Grant'))
           else
             Text(
               'Granted',
@@ -333,6 +322,99 @@ class _UsageDebugWidgetState extends State<UsageDebugWidget> {
     };
   }
 
+  Widget _buildAlarmTestCard() {
+    return Card(
+      color: _alarmPlaying ? Colors.orange.shade50 : null,
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(
+                  _alarmPlaying ? Icons.alarm_on : Icons.alarm,
+                  size: 20,
+                  color: _alarmPlaying ? Colors.orange : null,
+                ),
+                const SizedBox(width: 8),
+                const Text(
+                  'Alarm Test',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Text(
+              _alarmPlaying
+                  ? 'Alarm is currently playing'
+                  : 'Test the alarm sound',
+              style: TextStyle(
+                color: _alarmPlaying ? Colors.orange.shade900 : Colors.grey,
+              ),
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: ElevatedButton.icon(
+                    onPressed: _alarmPlaying ? null : _testPlayAlarm,
+                    icon: const Icon(Icons.play_arrow),
+                    label: const Text('Play Alarm'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.green,
+                      foregroundColor: Colors.white,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: ElevatedButton.icon(
+                    onPressed: _alarmPlaying ? _testStopAlarm : null,
+                    icon: const Icon(Icons.stop),
+                    label: const Text('Stop Alarm'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.red,
+                      foregroundColor: Colors.white,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _testPlayAlarm() async {
+    try {
+      final alarmService = getIt<AlarmService>();
+      await alarmService.playAlarm('default');
+      setState(() => _alarmPlaying = true);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Error playing alarm: $e')));
+    }
+  }
+
+  Future<void> _testStopAlarm() async {
+    try {
+      final alarmService = getIt<AlarmService>();
+      await alarmService.stopAlarm();
+      setState(() {
+        _alarmPlaying = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Error stopping alarm: $e')));
+    }
+  }
+
   Widget _buildFetchButton() {
     return SizedBox(
       width: double.infinity,
@@ -340,9 +422,7 @@ class _UsageDebugWidgetState extends State<UsageDebugWidget> {
         onPressed: _hasUsagePermission ? _fetchUsageData : null,
         icon: const Icon(Icons.refresh),
         label: const Text('Fetch Last 24h Usage'),
-        style: ElevatedButton.styleFrom(
-          padding: const EdgeInsets.all(16),
-        ),
+        style: ElevatedButton.styleFrom(padding: const EdgeInsets.all(16)),
       ),
     );
   }
@@ -373,10 +453,7 @@ class _UsageDebugWidgetState extends State<UsageDebugWidget> {
                 const SizedBox(width: 8),
                 const Text(
                   'Error',
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                  ),
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                 ),
               ],
             ),
@@ -409,10 +486,7 @@ class _UsageDebugWidgetState extends State<UsageDebugWidget> {
               children: [
                 const Text(
                   'Usage Data (Last 24h)',
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                  ),
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                 ),
                 Text(
                   DateFormat('MMM dd, HH:mm').format(DateTime.now()),
@@ -457,10 +531,7 @@ class _UsageDebugWidgetState extends State<UsageDebugWidget> {
                 ),
                 Text(
                   packageName,
-                  style: const TextStyle(
-                    fontSize: 12,
-                    color: Colors.grey,
-                  ),
+                  style: const TextStyle(fontSize: 12, color: Colors.grey),
                 ),
               ],
             ),
@@ -491,10 +562,7 @@ class _UsageDebugWidgetState extends State<UsageDebugWidget> {
         children: [
           const Text(
             'Total Usage',
-            style: TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.bold,
-            ),
+            style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
           ),
           Text(
             _formatDuration(total),

@@ -16,10 +16,34 @@ class DisciplineRule with _$DisciplineRule {
     String? alarmSoundTitle,
     required TerminationMechanism terminationMechanism,
     @Default(true) bool isEnabled,
+    RuleExecutionStatus? lastExecutionStatus,
   }) = _DisciplineRule;
 
   factory DisciplineRule.fromJson(Map<String, dynamic> json) =>
       _$DisciplineRuleFromJson(json);
+}
+
+@freezed
+class RuleExecutionStatus with _$RuleExecutionStatus {
+  const factory RuleExecutionStatus({
+    required DateTime date,
+    required ExecutionOutcome outcome,
+    DateTime? thresholdCrossedAt,
+    DateTime? alarmTriggeredAt,
+    DateTime? alarmStoppedAt,
+    String? failureReason,
+  }) = _RuleExecutionStatus;
+
+  factory RuleExecutionStatus.fromJson(Map<String, dynamic> json) =>
+      _$RuleExecutionStatusFromJson(json);
+}
+
+enum ExecutionOutcome {
+  success,              // Threshold not crossed
+  alarmTerminated,      // Threshold crossed, alarm rang and was terminated
+  alarmTimedOut,        // Threshold crossed, alarm ran full duration
+  alarmFailedToTrigger, // Threshold crossed but alarm didn't trigger
+  alarmTooLate,         // Threshold crossed but > 2 min passed before detection
 }
 
 @freezed

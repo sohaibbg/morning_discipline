@@ -114,6 +114,20 @@ class MainActivity : FlutterActivity() {
                     }
                 }
 
+                "updateMonitoringNotification" -> {
+                    val ongoing = call.argument<Boolean>("ongoing")
+                    if (ongoing != null) {
+                        try {
+                            MonitoringService.updateNotification(this, ongoing)
+                            result.success(true)
+                        } catch (e: Exception) {
+                            result.error("ERROR", "Failed to update notification: ${e.message}", null)
+                        }
+                    } else {
+                        result.error("INVALID_ARGS", "Missing ongoing parameter", null)
+                    }
+                }
+
                 "pickAlarmSound" -> {
                     try {
                         pendingAlarmResult = result
@@ -321,17 +335,29 @@ class MainActivity : FlutterActivity() {
     private fun getForegroundAppPackage(): String? {
         val usageStatsManager = getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
         val time = System.currentTimeMillis()
-        val usageStatsList = usageStatsManager.queryUsageStats(
-            UsageStatsManager.INTERVAL_BEST,
-            time - 1000 * 10, // Last 10 seconds
-            time
-        )
 
-        if (usageStatsList.isEmpty()) return null
+        // Use events for more accurate current app detection
+        val usageEvents = usageStatsManager.queryEvents(time - 1000 * 5, time)
 
-        // Get the most recently used app
-        val sortedStats = usageStatsList.sortedByDescending { it.lastTimeUsed }
-        return sortedStats.firstOrNull()?.packageName
+        var lastResumedApp: String? = null
+        val event = android.app.usage.UsageEvents.Event()
+
+        // Iterate through events to find the most recent ACTIVITY_RESUMED
+        while (usageEvents.hasNextEvent()) {
+            usageEvents.getNextEvent(event)
+
+            if (event.eventType == android.app.usage.UsageEvents.Event.ACTIVITY_RESUMED) {
+                lastResumedApp = event.packageName
+            } else if (event.eventType == android.app.usage.UsageEvents.Event.ACTIVITY_PAUSED ||
+                       event.eventType == android.app.usage.UsageEvents.Event.ACTIVITY_STOPPED) {
+                // If the last resumed app was paused/stopped, clear it
+                if (event.packageName == lastResumedApp) {
+                    lastResumedApp = null
+                }
+            }
+        }
+
+        return lastResumedApp
     }
 
     private fun canDrawOverlays(): Boolean {
@@ -358,7 +384,8 @@ class MainActivity : FlutterActivity() {
             }
             flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
                     WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
-                    WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
+                    WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+                    WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
             format = PixelFormat.TRANSLUCENT
             gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
             y = 100

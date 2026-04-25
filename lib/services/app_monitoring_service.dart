@@ -161,6 +161,22 @@ class AppMonitoringService {
     }
   }
 
+  Future<bool> updateMonitoringNotification({required bool ongoing}) async {
+    if (!Platform.isAndroid) {
+      return false;
+    }
+
+    try {
+      final bool result = await platform.invokeMethod('updateMonitoringNotification', {
+        'ongoing': ongoing,
+      });
+      return result;
+    } catch (e) {
+      print('Error updating monitoring notification: $e');
+      return false;
+    }
+  }
+
   Map<String, Duration> _createEmptyUsageMap(List<String> packageNames) {
     final Map<String, Duration> usageMap = {};
     for (final packageName in packageNames) {
