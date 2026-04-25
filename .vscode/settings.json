@@ -1,0 +1,12 @@
+{
+  "files.exclude": {
+    "**/*.g.dart": true,
+    "**/*.freezed.dart": true,
+    "**/*.mocks.dart": true
+  },
+  "files.watcherExclude": {
+    "**/*.g.dart": true,
+    "**/*.freezed.dart": true,
+    "**/*.mocks.dart": true
+  }
+}
